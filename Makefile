@@ -1,15 +1,28 @@
 
  
-# Etapa 1 - Compiladores (2024/1) - Lucas M. Schnorr
-# Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342940
+# Etapa 2 - Compiladores (2024/1) - Lucas M. Schnorr
+# Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 
-etapa1: lex.yy.o main.o
-	gcc -o etapa1 lex.yy.o main.o
-main.o: main.c
-	gcc -c main.c
-lex.yy.o: lex.yy.c
-	gcc -c lex.yy.c
-lex.yy.c: scanner.l
-	flex scanner.l
-clear: lex.yy.o main.o etapa1
-	rm lex.yy.c lex.yy.o main.o etapa1
+CC=gcc
+CFLAGS=-I.
+OBJ = main.o parser.o
+CLN = lex.yy.c parser.tab.c etapa2 parser.tab.h
+
+all: bison scanner etapa2
+
+bison: parser.y
+	bison -d parser.y
+
+scanner: scanner.l parser.tab.c
+	lex scanner.l
+
+etapa2: parser.tab.c lex.yy.c
+	$(CC) -c lex.yy.c parser.tab.c main.c $(CFLAGS)
+	$(CC) -o $@ lex.yy.o parser.tab.o main.o $(CFLAGS)
+
+clean:
+	rm *.o $(CLN)
+
+run: 
+	@./etapa2 < teste.txt
+
