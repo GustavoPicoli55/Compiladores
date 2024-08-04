@@ -1,0 +1,14 @@
+//()|int/a{int a,a=0,b(!c | b),return a,}
+//()|int/a{b(a),}
+//()|int/a{if(c != b) {return a,} else {return b,},}
+//()|int/a{while ((a + b) != c) {t = h,},}
+//()|int/a{b = !(-!b + c) + (t | q),}
+//()|int/a{b = -!b,}
+
+//ERR_FUNCTION
+() | int / g { return 0, }
+() | int / f {
+  {
+    g = 2,
+  },
+}
