@@ -1,0 +1,42 @@
+//Endereço de variáveis locais são um deslocamento =rfp=
+int a; b; c,// d,e; f; g; h; i; j; k; l; m; n; o; p; q; r; s,
+() | int / main {
+	a = 1,
+	b = 2,
+	int ta; te,
+	te = 10,
+	ta = -te,
+
+	return ta,
+}
+
+/*int a,
+int c,
+() | int / main {
+	int b,
+	a = 3,
+	c = 4,
+	b = a + c,
+	return b,
+}*/
+
+//int a,
+//() | int / main {
+//	int b,
+//	b = a,
+//	return b,
+//}
+
+
+
+//int v1,
+
+//() | int / main {
+//  int v2 ; v3; v4 ; v5 ; v6 ; v7; v8,
+//  v3 = 0,
+//  v1 = 0,
+//  while(v3 < 100){
+//    v3 = v3+3,
+//    v1 = v1+1,
+//  },
+//}
