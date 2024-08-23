@@ -1,5 +1,5 @@
 /*
-        Etapa 4 - Compiladores (2024/1) - Lucas M. Schnorr
+        Etapa 6 - Compiladores (2024/1) - Lucas M. Schnorr
 		Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 */
 
@@ -14,6 +14,7 @@ simbol *simbol_new(int linha, const char *natureza, const char *tipo, vl *token_
         s->token_val.t_line = token_val->t_line;
         s->token_val.t_type = token_val->t_type;
         s->token_val.t_value = token_val->t_value;
+        s->escopo = NULL;
     }
     return s;
 }
@@ -23,6 +24,7 @@ simbolTable *simbolTable_new(){
     if(t != NULL){
         t->simbols = NULL;
         t->num_simbols = 0;
+        t->escopo = "rbss";
     }
     return t;
 }
@@ -31,6 +33,9 @@ void simbolTable_add(simbolTable *t, simbol *s){
     if(t == NULL || s == NULL) {
         return;
     }
+    sprintf(s->shift, "%d", SIZE_OF_INT*t->num_simbols);
+ 
+    s->escopo = strdup(t->escopo);
     t->num_simbols++;
     t->simbols = realloc(t->simbols, t->num_simbols * sizeof(simbol));
     t->simbols[t->num_simbols-1] = s;
@@ -82,6 +87,7 @@ void tableStack_push(tableStack **ts, simbolTable *nova_tabela){
         prox->topo = (*ts)->topo;
         prox->prox = (*ts)->prox;
         (*ts)->prox = prox;
+        nova_tabela->escopo = "rfp";
     }
     (*ts)->topo = nova_tabela;
 }

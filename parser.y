@@ -1,8 +1,9 @@
 %{
     /*
-        Etapa 4 - Compiladores (2024/1) - Lucas M. Schnorr
+        Etapa 6 - Compiladores (2024/1) - Lucas M. Schnorr
 		Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 	*/
+	#define _OPEN_SYS_ITOA_EXT
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include "verifica.h"
@@ -18,8 +19,8 @@
 
 
 
-%code requires { #include "ast.h" 
-				 #include "simbol.h" }
+%code requires {  
+				 #include "asmger.h" }
 
 %union {
 	ast *node;
@@ -87,15 +88,20 @@
 %%
 //Um programa pode estar vazio ou conter elementos
 programa: 
-		push lista_de_elemento pop	{ exporta($2); }
-	|		 				{ exporta(NULL); };
+		push lista_de_elemento	{ $$ = $2;
+								  exporta($$->code,pilha->topo);
+	      						  tableStack_pop(pilha);}
+	|		 				{ exporta(NULL,NULL); };
 
 //Elementos podem ser um ou mais
 lista_de_elemento: 	
 		elemento lista_de_elemento	{ if($1 != NULL) $$ = $1;
 								  	  else if($2 != NULL) $$ = $2;
 								  	  else $$ = NULL; 
-								  	  if($2 != NULL & $1 != NULL) ast_add_child($1,$2);}
+								  	  if($2 != NULL & $1 != NULL){
+										ast_add_child($1,$2);
+										$$->code = listOpIloc_merge($1->code,$2->code);
+									  }}
 			  
 	|	elemento					{ $$ = $1; };
 //Ao adicionar na arvore verifica se elementos sao nulos, adicionando
@@ -117,19 +123,23 @@ tipo:
 
 //Listas possuem um ou mais identificadores
 lista: 
-		TK_IDENTIFICADOR ';' lista 	{ int erro = verifica_declaracao(pilha->topo,$1->t_value,$1->t_line);
+		lista ';' TK_IDENTIFICADOR  { int erro = verifica_declaracao(pilha->topo,$3->t_value,$3->t_line);
                                       if(erro != 0) exit(erro);
-									  simbolTable_add(pilha->topo,simbol_new($1->t_line,$1->t_type,last_type,$1));
-									  $$ = $3; }
+									  simbolTable_add(pilha->topo,simbol_new($3->t_line,$3->t_type,last_type,$3));
+								      $$ = $1; }
 	|	TK_IDENTIFICADOR			{ int erro = verifica_declaracao(pilha->topo,$1->t_value,$1->t_line);
                                       if(erro != 0) exit(erro);
 									  simbolTable_add(pilha->topo,simbol_new($1->t_line,$1->t_type,last_type,$1));
-									  $$ = NULL; };
+									  $$ = NULL; }
+	|								{ $$ = NULL; };
 //Variaveis nao sao adicionadas a arvore, por isso retornam nulo
 
 funcao: 
 		cabecalho push corpo pop	{ $$ = $1;
-									  if($3 != NULL) ast_add_child($$,$3); };
+									  if($3 != NULL){
+										ast_add_child($$,$3);
+										$$->code = $3->code;
+									  }};
 
 //Adiciona identificador da funcao na arvore
 cabecalho: 
@@ -155,7 +165,7 @@ parametro:
 //Parametros nao sao adicionados a arvore
 
 corpo: 
-		'{' sequencia '}'		{ $$ = $2; };
+		'{' sequencia '}'		{ $$ = $2;};
 	|	'{' '}'					{ $$ = NULL; };
 //Retorna nulo caso vazio
 
@@ -164,7 +174,10 @@ sequencia:
 		comando ',' sequencia	{ if($1 != NULL) $$ = $1;
 								  else if($3 != NULL) $$ = $3;
 								  else $$ = NULL; 
-								  if($3 != NULL & $1 != NULL) ast_add_child($1,$3); };
+								  if($3 != NULL & $1 != NULL) {
+									ast_add_child($1,$3);
+									$$->code = listOpIloc_merge($1->code, $3->code);
+		 						  }};
 								  
 	|	comando ','				{ $$ = $1; }
 
@@ -187,7 +200,9 @@ comando_atribuicao:
 											  if(erro != 0) exit(erro);		
 											  $$ = ast_new("=",simbolo->tipo);
 											  ast_add_child($$,ast_new($1->t_value,simbolo->tipo));
-											  ast_add_child($$,$3); };
+											  ast_add_child($$,$3);
+											  $$->code = $3->code;
+											  listOpIloc_add($$->code,geraOperacao("storeAI",simbolo->token_val.t_value,simbolo->escopo,simbolo->shift));};
 //Adiciona atribuicao a arvore, junto com seus dois filhos
 
 //Chamar funcoes dentro de uma funcao
@@ -198,13 +213,18 @@ chamada_funcao:
 														char msgFunc[6] = "call "; 
 														strcat(msgFunc, $1->t_value); 
 														$$ = ast_new(msgFunc,simbolo->tipo);
-														if($3 != NULL) ast_add_child($$,$3); };
+														if($3 != NULL){
+															ast_add_child($$,$3); 
+															$$->code = $3->code;
+														}};
 //Adiciona chamada de funcao a arvore, concatenando call ao nome da funcao
 
 //return ...    
 comando_retorno: 
 		TK_PR_RETURN expressao 				{ $$ = ast_new("return",$2->type); 
-											  ast_add_child($$,$2); };
+											  ast_add_child($$,$2); 
+											  $$->code = $2->code;
+											  listOpIloc_add($$->code,geraOperacao("return",$2->label,$2->code->operacoes[0]->arg1,$2->code->operacoes[0]->arg2));};
 
 //Comandos de IF e While, respectivamente
 comando_controle_fluxo: 
@@ -214,20 +234,65 @@ comando_controle_fluxo:
 condicional:	
 		TK_PR_IF '(' expressao ')' push corpo pop { $$ = ast_new("if","bool");
 													ast_add_child($$,$3);
-													ast_add_child($$,$6); }					
+													ast_add_child($$,$6); 
+													char *l1 = new_label();
+													char *l2 = new_label();
+													char *t1 = gera_temp();
+													$$->code = $3->code;
+													listOpIloc_add($$->code,geraOperacao("loadI", "0", t1, $3->label));
+													char *t2 = gera_temp();
+													listOpIloc_add($$->code,geraOperacao("cmp_NE", t1, $3->temp, t2));
+													listOpIloc_add($$->code,geraOperacao("cbr", t2, l1, l2));
+													listOpIloc_add($$->code,geraOperacao("nop", l1, NULL, NULL));
+													$$->code = listOpIloc_merge($$->code,$6->code);
+													listOpIloc_add($$->code,geraOperacao("jumpI", l2, NULL, NULL));
+													listOpIloc_add($$->code,geraOperacao("nop", l2, NULL, NULL));}					
 	|	TK_PR_IF '(' expressao ')' push corpo pop TK_PR_ELSE push corpo pop	{ $$ = ast_new("if","bool");
 																			  ast_add_child($$,$3);
 																			  ast_add_child($$,$6);
-																			  ast_add_child($$,$10); };
+																			  ast_add_child($$,$10); 
+																			  char *l1 = new_label();
+																			  char *l2 = new_label();
+																			  char *t1 = gera_temp();
+																			  $$->code = $3->code;
+																		      listOpIloc_add($$->code,geraOperacao("loadI", "0", t1, $3->label));
+																			  char *t2 = gera_temp();
+																			  listOpIloc_add($$->code,geraOperacao("cmp_NE", t1, $3->temp, t2));
+																			  listOpIloc_add($$->code,geraOperacao("cbr", t2, l1, l2));
+																			  char *l3 = new_label();
+																			  listOpIloc_add($$->code,geraOperacao("nop", l1, NULL, NULL));
+																			  $$->code = listOpIloc_merge($$->code,$6->code);
+																			  listOpIloc_add($$->code,geraOperacao("jumpI", l3, NULL, NULL));
+																			  listOpIloc_add($$->code,geraOperacao("nop", l2, NULL, NULL));
+																			  $$->code = listOpIloc_merge($$->code,$10->code);
+																			  listOpIloc_add($$->code,geraOperacao("nop", l3, NULL, NULL));};
 
 iterativa: TK_PR_WHILE '(' expressao ')' push corpo pop { $$ = ast_new("while","bool");
 														  ast_add_child($$,$3);
-														  ast_add_child($$,$6); };
+														  ast_add_child($$,$6); 
+														  char *l1 = new_label();
+														  char *l2 = new_label();
+													      char *l3 = new_label();
+														  char *t1 = gera_temp();
+														  $$->code = listOpIloc_new();
+														  listOpIloc_add($$->code,geraOperacao("nop", l1, NULL, NULL));
+														  $$->code = listOpIloc_merge($$->code,$3->code);
+														  listOpIloc_add($$->code,geraOperacao("loadI", "0", t1, $3->label));
+														  char *t2 = gera_temp();
+														  listOpIloc_add($$->code,geraOperacao("cmp_NE", t1, $3->temp, t2));
+														  listOpIloc_add($$->code,geraOperacao("cbr", t2, l2, l3));
+														  listOpIloc_add($$->code,geraOperacao("nop", l2, NULL, NULL));
+														  $$->code = listOpIloc_merge($$->code,$6->code);
+														  listOpIloc_add($$->code,geraOperacao("jumpI", l1, NULL, NULL));
+														  listOpIloc_add($$->code,geraOperacao("nop", l3, NULL, NULL));};
 
 //Construtor de lista de expressões
 lista_de_expressoes:
 		expressao ';' lista_de_expressoes	 { $$ = $1;
-											   if($3 != NULL) ast_add_child($$,$3); }
+											   if($3 != NULL){
+													ast_add_child($$,$3);
+													$$->code = listOpIloc_merge($1->code, $3->code);
+											   }}
 	|	expressao							 { $$ = $1; };
 	|										 { $$ = NULL; };
 
@@ -240,69 +305,148 @@ eo7:
 		eo6         		{ $$ = $1; }    	
 	|	eo7 TK_OC_OR eo6   	{ $$ = ast_new("|",infere_tipo($1->type,$3->type));
 							  ast_add_child($$,$1);
-							  ast_add_child($$,$3); };
+							  ast_add_child($$,$3); 
+							  $$->temp = gera_temp();
+							  $$->code = listOpIloc_merge($1->code, $3->code);
+							  listOpIloc_add($$->code,geraOperacao("or", $1->temp, $3->temp, $$->temp));};
 
 eo6: 
 		eo5         		{ $$ = $1; }   	
 	|	eo6 TK_OC_AND eo5  	{ $$ = ast_new("&",infere_tipo($1->type,$3->type));
-								   ast_add_child($$,$1);
-								   ast_add_child($$,$3); };
+							  ast_add_child($$,$1);
+							  ast_add_child($$,$3); 
+							  $$->temp = gera_temp();
+							  $$->code = listOpIloc_merge($1->code, $3->code);
+							  listOpIloc_add($$->code,geraOperacao("and", $1->temp, $3->temp, $$->temp));};
 
 eo5: 
 		eo4         		{ $$ = $1; }        
 	|	eo5 TK_OC_EQ eo4    { $$ = ast_new("==",infere_tipo($1->type,$3->type));
 							  ast_add_child($$,$1);
-							  ast_add_child($$,$3); }
+							  ast_add_child($$,$3); 
+							  $$->temp = gera_temp();
+							  $$->code = listOpIloc_merge($1->code, $3->code);
+							  listOpIloc_add($$->code,geraOperacao("cmp_EQ", $1->temp, $3->temp, $$->temp));}
 	|	eo5 TK_OC_NE eo4    { $$ = ast_new("!=",infere_tipo($1->type,$3->type));
 							  ast_add_child($$,$1);
-							  ast_add_child($$,$3); };
+							  ast_add_child($$,$3); 
+							  $$->temp = gera_temp();
+							  $$->code = listOpIloc_merge($1->code, $3->code);
+							  listOpIloc_add($$->code,geraOperacao("cmp_NE", $1->temp, $3->temp, $$->temp));};
 
 eo4: 
 		eo3         	 { $$ = $1; }    
 	|	eo4 TK_OC_LE eo3 { $$ = ast_new("<=",infere_tipo($1->type,$3->type));
 						   ast_add_child($$,$1);
-						   ast_add_child($$,$3); }
+						   ast_add_child($$,$3); 
+						   $$->temp = gera_temp();
+						   $$->code = listOpIloc_merge($1->code, $3->code);
+						   listOpIloc_add($$->code,geraOperacao("cmp_LE", $1->temp, $3->temp, $$->temp));}
 	|	eo4 TK_OC_GE eo3 { $$ = ast_new(">=",infere_tipo($1->type,$3->type));
 						   ast_add_child($$,$1);
-						   ast_add_child($$,$3); }
+						   ast_add_child($$,$3); 
+						   $$->temp = gera_temp();
+						   $$->code = listOpIloc_merge($1->code, $3->code);
+						   listOpIloc_add($$->code,geraOperacao("cmp_GE", $1->temp, $3->temp, $$->temp));}
 	|	eo4 '<' eo3      { $$ = ast_new("<",infere_tipo($1->type,$3->type));
 						   ast_add_child($$,$1);
-						   ast_add_child($$,$3); }
+						   ast_add_child($$,$3); 
+						   $$->temp = gera_temp();
+						   $$->code = listOpIloc_merge($1->code, $3->code);
+						   listOpIloc_add($$->code,geraOperacao("cmp_LT", $1->temp, $3->temp, $$->temp));}
 	|	eo4 '>' eo3      { $$ = ast_new(">",infere_tipo($1->type,$3->type));
 						   ast_add_child($$,$1);
-						   ast_add_child($$,$3); };
+						   ast_add_child($$,$3);
+						   $$->temp = gera_temp();
+						   $$->code = listOpIloc_merge($1->code, $3->code);
+						   listOpIloc_add($$->code,geraOperacao("cmp_GT", $1->temp, $3->temp, $$->temp));};
 
 eo3: 
 		eo2         { $$ = $1; }
 	|	eo3 '+' eo2 { $$ = ast_new("+",infere_tipo($1->type,$3->type));
 					  ast_add_child($$,$1);
-					  ast_add_child($$,$3); }
+					  ast_add_child($$,$3); 
+					  $$->temp = gera_temp();
+					  $$->code = listOpIloc_merge($1->code, $3->code);
+					  listOpIloc_add($$->code,geraOperacao("add", $1->temp, $3->temp, $$->temp));}
 	|	eo3 '-' eo2 { $$ = ast_new("-",infere_tipo($1->type,$3->type));
 					  ast_add_child($$,$1);
-					  ast_add_child($$,$3); };
+					  ast_add_child($$,$3); 
+					  $$->temp = gera_temp();
+					  $$->code = listOpIloc_merge($1->code, $3->code);
+					  listOpIloc_add($$->code,geraOperacao("sub", $1->temp, $3->temp, $$->temp));};
 
 eo2: 
 		eo1			{ $$ = $1; }
 	|	eo2 '*' eo1 { $$ = ast_new("*",infere_tipo($1->type,$3->type));
 					  ast_add_child($$,$1);
-					  ast_add_child($$,$3); }
+					  ast_add_child($$,$3); 
+					  $$->temp = gera_temp();
+					  $$->code = listOpIloc_merge($1->code, $3->code);
+					  listOpIloc_add($$->code,geraOperacao("mult", $1->temp, $3->temp, $$->temp));}
 	|	eo2 '/' eo1 { $$ = ast_new("/",infere_tipo($1->type,$3->type)); 
 				      ast_add_child($$,$1);
-					  ast_add_child($$,$3); }
+					  ast_add_child($$,$3); 
+					  $$->temp = gera_temp();
+					  $$->code = listOpIloc_merge($1->code, $3->code);
+					  listOpIloc_add($$->code,geraOperacao("div", $1->temp, $3->temp, $$->temp));}
 	|	eo2 '%' eo1 { $$ = ast_new("%",infere_tipo($1->type,$3->type));
 					  ast_add_child($$,$1);
 					  ast_add_child($$,$3); };
      
 eo1:
 		operando	{ $$ = $1; }
-	|	'!' eo0		{ $$ = ast_new("!",$2->type); ast_add_child($$,$2); }
-	|	'-' eo0     { $$ = ast_new("-",$2->type); ast_add_child($$,$2); };
+	|	'!' eo0		{ $$ = ast_new("!",$2->type); 
+					  ast_add_child($$,$2); 
+					  $$->temp = gera_temp();
+					  char *l1 = new_label();
+					  char *l2 = new_label();
+                      char *t1 = gera_temp();
+					  $$->code = $2->code;
+					  listOpIloc_add($$->code,geraOperacao("loadI", "0", t1, $2->label));
+					  char *t2 = gera_temp();
+					  listOpIloc_add($$->code,geraOperacao("cmp_NE", t1, $2->temp, t2));
+					  listOpIloc_add($$->code,geraOperacao("cbr", t2, l1, l2));
+					  char *l3 = new_label();
+					  listOpIloc_add($$->code,geraOperacao("nop", l1, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("loadI", "0", $$->temp, $2->label));
+					  listOpIloc_add($$->code,geraOperacao("jumpI", l3, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("nop", l2, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("loadI", "1", $$->temp, $2->label));
+					  listOpIloc_add($$->code,geraOperacao("nop", l3, NULL, NULL));}
+	|	'-' eo0     { $$ = ast_new("-",$2->type); 
+					  ast_add_child($$,$2); 
+					  $$->temp = gera_temp();
+					  $$->code = $2->code;
+					  listOpIloc_add($$->code,geraOperacao("multI", $2->temp, "-1", $$->temp));
+					  };
 
 //Maior prioridade
 eo0:
 		operando	{ $$ = $1; }
-	|	'!' eo1 	{ $$ = ast_new("!",$2->type); ast_add_child($$,$2); }
-	|	'-' eo1     { $$ = ast_new("-",$2->type); ast_add_child($$,$2); };
+	|	'!' eo1 	{ $$ = ast_new("!",$2->type); 
+					  ast_add_child($$,$2); 
+					  $$->temp = gera_temp();
+					  char *l1 = new_label();
+					  char *l2 = new_label();
+                      char *t1 = gera_temp();
+					  $$->code = $2->code;
+					  listOpIloc_add($$->code,geraOperacao("loadI", "0", t1, $2->label));
+					  char *t2 = gera_temp();
+					  listOpIloc_add($$->code,geraOperacao("cmp_NE", t1, $2->temp, t2));
+					  listOpIloc_add($$->code,geraOperacao("cbr", t2, l1, l2));
+					  char *l3 = new_label();
+					  listOpIloc_add($$->code,geraOperacao("nop", l1, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("loadI", "0", $$->temp, $2->label));
+					  listOpIloc_add($$->code,geraOperacao("jumpI", l3, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("nop", l2, NULL, NULL));
+					  listOpIloc_add($$->code,geraOperacao("loadI", "1", $$->temp, $2->label));
+					  listOpIloc_add($$->code,geraOperacao("nop", l3, NULL, NULL));}
+	|	'-' eo1     { $$ = ast_new("-",$2->type); 
+					  ast_add_child($$,$2);
+					  $$->temp = gera_temp();
+					  $$->code = $2->code;
+					  listOpIloc_add($$->code,geraOperacao("multI", $2->temp, "-1", $$->temp));};
 
 //'()' quebra a prioridade iniciando uma nova expressao
 operando:	
@@ -310,8 +454,14 @@ operando:
 	|	TK_IDENTIFICADOR 	{ simbol *simbolo = tableStack_search(pilha,$1->t_value);
 							  int erro = verifica_uso(simbolo,$1->t_type,$1->t_line,$1->t_value);
 							  if(erro != 0) exit(erro);		
-							  $$ = ast_new($1->t_value,simbolo->tipo); }
-	|	literal 			{ $$ = $1; }
+							  $$ = ast_new($1->t_value,simbolo->tipo); 
+							  $$->temp = gera_temp();
+							  $$->code = listOpIloc_new();
+							  listOpIloc_add($$->code,geraOperacao("loadAI", simbolo->escopo, simbolo->shift, $$->label));}
+	|	literal 			{ $$ = $1; 
+							  $$->temp = gera_temp();
+                              $$->code = listOpIloc_new();
+							  listOpIloc_add($$->code,geraOperacao("loadI", $1->label, $$->temp, $1->label));}
 	|	chamada_funcao		{ $$ = $1; };
 
 literal:	

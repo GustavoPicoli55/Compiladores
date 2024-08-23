@@ -1,5 +1,5 @@
 /*
-        Etapa 4 - Compiladores (2024/1) - Lucas M. Schnorr
+        Etapa 6 - Compiladores (2024/1) - Lucas M. Schnorr
 		Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 */
 
@@ -8,17 +8,21 @@
 
 #include "ast.h"
 
+#define SIZE_OF_INT 4
+
 struct _simbol {
     int linha;
     char* natureza;
     char* tipo;
     vl token_val;
+    char shift[SIZE_OF_INT*8+1];
+    char *escopo;
 } typedef simbol; 
 
 struct _simbolTable {
 	simbol** simbols;
     int num_simbols;
-
+    char *escopo;
 } typedef simbolTable;
     
 struct _tableStack {

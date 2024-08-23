@@ -1,5 +1,5 @@
 /*
-        Etapa 4 - Compiladores (2024/1) - Lucas M. Schnorr
+        Etapa 6 - Compiladores (2024/1) - Lucas M. Schnorr
 		Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 */
 
@@ -10,11 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include "iloc.h"
 
 struct _vl{
-		int t_line;
-		char* t_type;
-		char* t_value;
+	int t_line;
+	char* t_type;
+	char* t_value;
 } typedef vl;
 
 struct _ast{
@@ -23,6 +24,8 @@ struct _ast{
 	int number_of_children;
 	bool is_scoped_block;
 	struct _ast **children;
+	listOpIloc *code;
+	char *temp;
 } typedef ast;
 
 /*
@@ -44,16 +47,6 @@ void ast_add_child(ast *root, ast *child);
  * Função ast_pop_child, remove child de tree.
  */
 void ast_pop_child(ast* root);
-
-/*
- * Função print_tree, imprime tree na tela.
- */
-void print_tree(ast *root);
-
-/*
- * Função exporta, permite uso da arvore final por programas externos.
- */
-void exporta(ast *root);
 
 
 #endif // _AST_H

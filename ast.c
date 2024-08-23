@@ -1,10 +1,9 @@
 /*
-        Etapa 4 - Compiladores (2024/1) - Lucas M. Schnorr
+        Etapa 6 - Compiladores (2024/1) - Lucas M. Schnorr
 		Grupo S: Gustavo Picoli - 00332780 e Nathan Mattes - 00342941
 */
 
 #include "ast.h"
-
 
 ast *ast_new(const char *label, const char *type){
 	ast *r = (ast*)malloc(sizeof(ast));
@@ -13,6 +12,8 @@ ast *ast_new(const char *label, const char *type){
 		r->type = strdup(type);
 		r->number_of_children = 0;
 		r->children = NULL;
+		r->temp = NULL;
+		r->code = NULL;
 	}
 	r->is_scoped_block = false;
 	return r;
@@ -29,6 +30,8 @@ void ast_free(ast *root){
 	free(root->children);
 	free(root->label);
 	free(root->type);
+	free(root->temp);
+	free(root->code);
 	free(root);
 }
 
@@ -52,20 +55,4 @@ void ast_pop_child(ast *root){
 	}
 	root->number_of_children--;
 	root->children = realloc(root->children, root->number_of_children * sizeof(ast*));
-}
-
-void exporta(ast *root)
-{
-  int i;
-  if (root != NULL) {
-    printf("%p [label=\"%s\"];\n", root, root->label);
-
-    for (i = 0; i < root->number_of_children; i++) {
-      printf("%p, %p\n", root, root->children[i]);
-    }
-
-    for (i = 0; i < root->number_of_children; i++) {
-      exporta(root->children[i]);
-    }
-  }
 }
